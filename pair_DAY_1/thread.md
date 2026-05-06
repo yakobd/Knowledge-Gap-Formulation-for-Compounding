@@ -16,7 +16,7 @@ It's structural — and it lives at inference time.
 
 **Tweet 2:**
 During training, your critic learned on pairs
-that were *deliberately* different.
+that were _deliberately_ different.
 Chosen vs rejected. Large quality margin.
 
 During deployment, you generate k candidates
@@ -57,8 +57,8 @@ Fix: harder negatives, more training data.
 **Tweet 5:**
 The numbers from real simulation (numpy, seed=42):
 
-Training pair avg margin:    1.808
-Deployment pool avg margin:  0.145
+Training pair avg margin: 1.808
+Deployment pool avg margin: 0.145
 Ratio: 12.5x
 
 Your critic was trained on pairs 12.5x more
@@ -73,8 +73,9 @@ data when the bottleneck is upstream of the critic.
 Full explainer with verified simulation code,
 decision rule, and adjacent concepts:
 
-[INSERT BLOG POST URL HERE]
+https://yakobdereje.substack.com/p/why-your-critics-90-accuracy-doesnt
 
 Sources:
+
 - Stiennon et al. 2020 (NeurIPS) — arxiv.org/abs/2009.01325
 - Lambert et al. 2024 (RewardBench) — arxiv.org/abs/2403.13787

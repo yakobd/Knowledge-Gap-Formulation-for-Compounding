@@ -60,6 +60,14 @@ You get **lexical variation** — different words, different sentence
 structures. You do not get **quality variation** — meaningfully
 different levels of correctness or task completion.
 
+The reason is probabilistic: a language model at temperature T
+samples from a fixed multinomial distribution over its vocabulary
+at each step. That distribution does not change between runs.
+What changes is only which sample is drawn — not the shape of
+the distribution being sampled from. Quality variation would
+require different distributions, which requires either a different
+model, different prompt, or a different temperature regime entirely.
+
 Training pairs had quality variation by construction.
 Deployment candidates have only lexical variation by physics.
 
@@ -120,8 +128,19 @@ deployment candidate pool:
 ```python
 def diagnose_candidate_pool(critic_scores_per_prompt):
     """
-    critic_scores_per_prompt: list of lists
-    Each inner list = critic scores for k candidates on one prompt
+    critic_scores_per_prompt: list of lists of floats
+    Each inner list = critic scores for k candidates on one prompt.
+
+    To use: generate k candidates per prompt using your inference
+    setup, score each with your critic, then pass the scores here.
+
+    Example with a real scorer:
+        candidates = [my_model.generate(prompt) for _ in range(k)]
+        scores = [my_critic.score(prompt, c) for c in candidates]
+        diagnose_candidate_pool([scores])
+
+    The function only requires pre-computed scores — it works with
+    any generator and any critic. No dependencies beyond numpy.
     """
     pool_stds = [np.std(scores) for scores in critic_scores_per_prompt]
     avg_std = np.mean(pool_stds)

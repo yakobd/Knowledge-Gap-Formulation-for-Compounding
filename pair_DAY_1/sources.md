@@ -26,11 +26,16 @@ for Language Modeling"**
 arXiv:2403.13787
 https://arxiv.org/abs/2403.13787
 
-Systematic evaluation of reward model behavior across chat,
-reasoning, and safety domains. Directly relevant to the divergence
-between preference accuracy on structured pairs and downstream
-deployment performance. Load-bearing for the diagnostic and
-decision-rule sections.
+RewardBench evaluates reward models across chat, reasoning, and
+safety categories using prompt-chosen-rejected trios. Its core
+finding is that reward models achieving high accuracy on chat-style
+pairs frequently underperform on reasoning and safety categories —
+demonstrating that accuracy on the training distribution does not
+transfer reliably to deployment distributions. This cross-category
+accuracy collapse is the empirical foundation for the diagnostic
+argument in the explainer: high preference accuracy is a property
+of the training distribution, not a guarantee of deployment lift.
+Load-bearing for the diagnostic and decision-rule sections.
 
 ---
 
