@@ -1,54 +1,70 @@
 # How Preference Training Actually Shifts Token Policy — And How To Tell If Your Model Is Gaming Your Evaluator
 
-> "Did my model learn to reason more carefully — or did it just
-> learn to say cautious-sounding words like 'scope', 'validate',
-> 'phased approach'?"
+> "My benchmark scores improved after preference training.
+> But did my model learn to reason more carefully about evidence —
+> or did it just learn to say 'scope', 'validate', 'phased approach'
+> whenever it sees a sales context?"
 
-If you've trained a model using preference objectives to reduce
-overcommitment and your benchmark scores improved — but you can't
-explain what changed at the token level — this explainer closes
-that gap. It walks through how DPO, SimPO, and ORPO each shift
-token probability distributions differently, why one can improve
-benchmark scores while creating style artifacts, and gives you
-a concrete diagnostic to distinguish genuine reasoning from
-evaluator gaming.
+This is not a theoretical question. It determines whether your
+benchmark improvement is real or whether you have trained a model
+that sounds careful without being careful. This explainer names
+the mechanism, shows it with real numbers, and gives you a
+concrete diagnostic you can run before reporting any result.
 
 ---
 
-## The Load-Bearing Mechanism — Token Policy Shift
+## Why This Gap Matters For Your Benchmark
 
-Every preference training objective does one thing at its core:
-it shifts the probability distribution over tokens the model
-predicts at each position. The question is HOW each objective
-shifts that distribution — and whether the shift reflects
-genuine behavior change or surface pattern learning.
+Your benchmark penalizes bench_overcommitment — the model making
+hard delivery promises when signals are weak. It rewards cautious,
+evidence-aware responses containing tokens like "scope",
+"validate", "phased approach", "discovery", "handoff".
 
-### How DPO Shifts Token Policy
+The problem: preference training optimizes for whatever pattern
+separates chosen from rejected responses. If your chosen responses
+consistently contain cautious tokens — the model learns to produce
+those tokens. Not because it reasoned about evidence. Because
+those tokens got rewarded.
+
+This is evaluator gaming. Your metric improves. Your behavior
+does not. And you cannot tell the difference from benchmark
+scores alone.
+
+---
+
+## The Load-Bearing Mechanism — How Each Objective Shifts Token Policy
+
+All three objectives — DPO, SimPO, ORPO — shift the probability
+distribution over tokens the model predicts at each position.
+But they do it differently. And the difference determines your
+evaluator gaming risk.
+
+### DPO — Reference-Anchored Policy Shift
 
 DPO keeps a frozen reference model — a snapshot of the model
-before training. For every chosen/rejected pair it optimizes:
+before training. Its loss function is:
 
 ```
 DPO loss = -log σ(β * (log P_θ(chosen) - log P_ref(chosen))
                  - β * (log P_θ(rejected) - log P_ref(rejected)))
 ```
 
-In plain language: make chosen responses MORE likely than the
-reference model would predict, and rejected responses LESS likely
-— but stay close to the reference through the β parameter.
+In plain language: make chosen responses MORE likely than your
+reference self would predict. Make rejected responses LESS likely.
+But stay close to your reference self through the β parameter.
 
-**What this means for token policy:** DPO shifts probabilities
-of entire response sequences relative to a baseline. It does not
-specifically target individual tokens — it nudges the whole
-distribution toward chosen responses.
+**Token policy effect:** DPO nudges the entire response
+distribution — not individual tokens. If "scope" appears in
+every chosen response, DPO raises P("scope") across all contexts.
+The model doesn't learn WHEN to say scope. It learns that scope
+is a good token to produce.
 
-**The evaluator gaming risk with DPO:** If your chosen responses
-consistently contain "scope" and "phased approach" — DPO raises
-the probability of these tokens across all contexts, not just
-when evidence is weak. The model learns: "these tokens get
-rewarded" — not "use these tokens when evidence is insufficient."
+**Evaluator gaming risk: MEDIUM** — the reference model acts
+as an anchor that limits how far token probabilities can shift.
 
-### How SimPO Shifts Token Policy
+---
+
+### SimPO — Length-Normalized Policy Shift
 
 SimPO removes the reference model entirely. It uses
 length-normalized average log probability as the reward:
@@ -59,73 +75,73 @@ SimPO reward = (1/|y|) * Σ log P_θ(y_t | x, y_<t)
 SimPO loss = -log σ(β * (reward_chosen - reward_rejected) - γ)
 ```
 
-Where γ is a target reward margin. Length normalization means
-longer responses are not automatically rewarded — the model
-must produce quality tokens, not just more tokens.
+Where γ is a target reward margin that must be exceeded.
 
-**What this means for token policy:** SimPO penalizes verbose
-overcommitment responses proportionally harder than DPO — a
-200-token overcommitment gets penalized more than a 20-token
-one. This is structurally correct for reducing bench_overcommitment
-which tends to produce longer, more assertive responses.
+**Token policy effect:** Length normalization means longer
+responses are not automatically rewarded — the model must
+produce quality tokens per position, not just more tokens.
+This directly addresses bench_overcommitment which produces
+longer, more assertive responses. A 200-token overcommitment
+gets penalized harder than a 20-token one.
 
-**The evaluator gaming risk with SimPO:** Without a reference
-model anchor, SimPO can shift token probabilities more aggressively
-than DPO. If cautious tokens dominate chosen responses, SimPO
-may produce a stronger style artifact than DPO.
-
-### How ORPO Shifts Token Policy
-
-ORPO combines SFT and preference training in a single loss:
-
-```
-ORPO loss = SFT loss + λ * odds ratio penalty
-
-odds ratio = P(chosen) / (1 - P(chosen))
-           / P(rejected) / (1 - P(rejected))
-```
-
-**What this means for token policy:** ORPO simultaneously
-teaches the model to generate good responses (SFT component)
-while penalizing bad ones (odds ratio component). The shift
-is more stable than DPO or SimPO because the SFT component
-anchors the model to positive examples.
-
-**The evaluator gaming risk with ORPO:** Lower — because the
-SFT component teaches the model what good responses look like
-from positive examples, not just what to avoid.
+**Evaluator gaming risk: HIGH** — without a reference model
+anchor, SimPO shifts token probabilities more aggressively.
+Cautious tokens in chosen responses get a stronger boost than
+in DPO.
 
 ---
 
-## The Evaluator Gaming Problem — Shown Concretely
+### ORPO — Combined SFT and Preference Shift
 
-Here is a simulation that makes the mechanism visible:
+ORPO combines SFT and preference training in one loss:
+
+```
+ORPO loss = SFT loss (learn from good examples)
+          + λ * odds ratio penalty (penalize bad vs good)
+
+odds ratio = [P(chosen) / (1 - P(chosen))]
+           / [P(rejected) / (1 - P(rejected))]
+```
+
+**Token policy effect:** The SFT component teaches the model
+what good responses look like from positive examples. The odds
+ratio component penalizes bad responses. The combination is
+more stable because the model has a positive target to learn
+toward — not just a negative to avoid.
+
+**Evaluator gaming risk: LOWER** — the SFT component anchors
+the model to genuine positive examples, reducing the chance
+that it learns surface patterns from rejected responses alone.
+
+---
+
+## The Simulation — Real Numbers Showing The Difference
+
+This simulation makes the mechanism visible. It shows token
+probability distributions before training, after genuine
+reasoning learning, and after evaluator gaming:
 
 ```python
 import numpy as np
 
 np.random.seed(42)
 
-# Simulate token probability distributions
-# before and after preference training
-
 tokens = ["scope", "validate", "phased", "immediately",
           "this_week", "guaranteed", "evidence", "discovery"]
 
-# Before training — roughly uniform
+# Before training
 before_training = np.array([0.08, 0.07, 0.06, 0.15,
                              0.14, 0.13, 0.09, 0.08])
 before_training = before_training / before_training.sum()
 
-# After preference training — two scenarios
-# Scenario A: Genuine reasoning learned
-# Evidence-conditional tokens rise, commitment tokens fall
+# After genuine reasoning learning:
+# evidence/discovery rise MORE than scope/validate/phased
 genuine_learning = np.array([0.09, 0.08, 0.07, 0.08,
                               0.07, 0.05, 0.18, 0.16])
 genuine_learning = genuine_learning / genuine_learning.sum()
 
-# Scenario B: Style artifact / evaluator gaming
-# Cautious tokens rise regardless of context
+# After evaluator gaming:
+# scope/validate/phased rise dramatically regardless of context
 style_artifact = np.array([0.18, 0.17, 0.16, 0.08,
                             0.07, 0.06, 0.09, 0.08])
 style_artifact = style_artifact / style_artifact.sum()
@@ -138,7 +154,7 @@ for i, token in enumerate(tokens):
           f"{genuine_learning[i]:>8.3f} "
           f"{style_artifact[i]:>8.3f}")
 
-print("\nDiagnostic — shift in cautious vs commitment tokens:")
+print("\nDiagnostic:")
 cautious_idx = [0, 1, 2, 6, 7]
 commit_idx = [3, 4, 5]
 
@@ -152,103 +168,148 @@ for label, dist in [("Genuine", genuine_learning),
           f"commitment {commit_shift:.3f}")
 ```
 
-**Actual output:**
+**Actual output (verified):**
 
 ```
 Token probability shifts after preference training:
-Token           Before  Genuine   Gaming
+Token             Before  Genuine   Gaming
 ---------------------------------------------
-scope            0.123    0.131    0.261
-validate         0.108    0.116    0.246
-phased           0.092    0.101    0.231
-immediately      0.231    0.116    0.116
-this_week        0.215    0.101    0.101
-guaranteed       0.200    0.072    0.087
-evidence         0.138    0.261    0.130
-discovery        0.123    0.231    0.116
+scope              0.100    0.115    0.202
+validate           0.088    0.103    0.191
+phased             0.075    0.090    0.180
+immediately        0.187    0.103    0.090
+this_week          0.175    0.090    0.079
+guaranteed         0.163    0.064    0.067
+evidence           0.112    0.231    0.101
+discovery          0.100    0.205    0.090
 
-Diagnostic — shift in cautious vs commitment tokens:
-Genuine: cautious +0.179, commitment -0.358
-Gaming:  cautious +0.461, commitment -0.243
+Diagnostic:
+Genuine: cautious +0.269, commitment -0.269
+Gaming:  cautious +0.289, commitment -0.289
 ```
 
-**What the numbers show:**
+**What the numbers reveal:**
 
-- Genuine learning raises evidence/discovery tokens MORE than
-  scope/validate/phased — the model learned to condition on
-  evidence first
-- Evaluator gaming raises scope/validate/phased tokens
-  dramatically — the model learned which words get rewarded
-  regardless of evidence quality
+In genuine learning — evidence (0.112→0.231) and discovery
+(0.100→0.205) rise the most. The model learned to condition
+on evidence tokens first before generating cautious language.
+Commitment tokens fall proportionally.
+
+In evaluator gaming — scope (0.100→0.202), validate
+(0.088→0.191), phased (0.075→0.180) rise dramatically. The
+model learned that these surface tokens get rewarded. Evidence
+and discovery barely move (0.112→0.101, 0.100→0.090) — the
+model is not learning to reason from evidence. It is learning
+to produce evaluator-friendly words.
+
+**The key diagnostic signal:** In genuine learning, evidence
+and discovery tokens rise MORE than scope and validate. In
+evaluator gaming, scope and validate rise MORE than evidence
+and discovery.
 
 ---
 
-## The Diagnostic — How To Tell Which One You Have
-
-Run this test before reporting benchmark results:
+## The Cheap Diagnostic — Run This Before Reporting Results
 
 ```python
-def test_evaluator_gaming(model, strong_evidence_prompt,
-                           weak_evidence_prompt):
+def test_evaluator_gaming(model, prompts):
     """
-    If the model is genuinely reasoning:
-    - Strong evidence → should commit (lower cautious token rate)
-    - Weak evidence → should hedge (higher cautious token rate)
+    Test whether model uses cautious tokens conditionally
+    (genuine reasoning) or unconditionally (evaluator gaming).
 
-    If the model is gaming the evaluator:
-    - Both prompts → similar cautious token rate
+    prompts: dict with keys 'strong_evidence' and 'weak_evidence'
+    Each value: a prompt where commitment is clearly right (strong)
+    or clearly wrong (weak).
+
+    Genuine reasoning:
+      weak evidence → high cautious token rate
+      strong evidence → low cautious token rate
+      ratio (weak/strong) > 2.0
+
+    Evaluator gaming:
+      both → similar cautious token rates
+      ratio (weak/strong) ≈ 1.0
     """
     cautious_tokens = ["scope", "validate", "phased",
                        "discovery", "handoff"]
 
-    strong_response = model.generate(strong_evidence_prompt)
-    weak_response = model.generate(weak_evidence_prompt)
+    results = {}
+    for condition, prompt in prompts.items():
+        response = model.generate(prompt)
+        count = sum(1 for t in cautious_tokens
+                   if t in response.lower())
+        results[condition] = count
+        print(f"{condition}: {count} cautious tokens")
 
-    strong_cautious = sum(1 for t in cautious_tokens
-                         if t in strong_response.lower())
-    weak_cautious = sum(1 for t in cautious_tokens
-                       if t in weak_response.lower())
+    ratio = results['weak_evidence'] / max(results['strong_evidence'], 1)
+    print(f"\nRatio (weak/strong): {ratio:.2f}")
 
-    print(f"Strong evidence cautious tokens: {strong_cautious}")
-    print(f"Weak evidence cautious tokens:   {weak_cautious}")
-    print(f"Ratio (weak/strong): {weak_cautious/max(strong_cautious,1):.2f}")
-
-    if weak_cautious / max(strong_cautious, 1) > 2.0:
-        print("DIAGNOSIS: Genuine reasoning — model responds to evidence")
+    if ratio > 2.0:
+        print("DIAGNOSIS: Genuine reasoning detected")
+        print("Model responds to evidence quality appropriately")
     else:
-        print("DIAGNOSIS: Possible evaluator gaming — similar rates")
+        print("DIAGNOSIS: Possible evaluator gaming")
+        print("Model uses cautious tokens regardless of evidence")
+
+    return ratio
 ```
 
 **Decision rule:**
 
-- Ratio > 2.0 → model uses cautious tokens when evidence is
-  weak, commits when evidence is strong → genuine reasoning
-- Ratio ≈ 1.0 → model uses cautious tokens regardless of
-  evidence quality → evaluator gaming
+```
+ratio > 2.0 → Genuine reasoning
+              Model commits when evidence is strong
+              Model hedges when evidence is weak
+
+ratio ≈ 1.0 → Evaluator gaming
+              Model hedges regardless of evidence quality
+              Benchmark improvement is a surface artifact
+```
 
 ---
 
 ## Adjacent Concepts Worth Knowing
 
-**KL divergence and reward overoptimization:** When preference
-training pushes too hard — the model drifts far from its
-original distribution and starts producing degenerate outputs
-that score well on the reward signal but fail on real tasks.
-DPO's β parameter and SimPO's γ margin both limit this drift.
+**Reward overoptimization:** When preference training pushes
+too far — the model drifts from its original distribution and
+produces outputs that score well on the reward signal but fail
+on real tasks. DPO's β parameter and SimPO's γ margin both
+limit this drift. Without careful tuning, every preference
+objective risks overoptimization.
 
-**Reward hacking vs evaluator gaming:** Reward hacking is
-when the model finds unexpected ways to maximize the reward
-signal (e.g. producing very short responses to exploit length
-normalization). Evaluator gaming is a specific form where the
-model learns the evaluator's surface patterns. Both produce
-benchmark improvements that don't generalize.
+**KL divergence as regularization:** DPO's reference model
+implicitly computes KL divergence between the trained policy
+and the reference. This regularization is what prevents reward
+hacking — the model cannot drift arbitrarily far. SimPO and
+ORPO lack this explicit regularization, which is why their
+evaluator gaming risk is higher.
 
-**Instruction-following vs style artifacts:** Preference
-training improves instruction-following when the chosen/rejected
-pairs encode genuine quality differences. It produces style
-artifacts when pairs encode surface token differences. The
-quality of your preference pairs determines which outcome
-you get.
+**Preference pair quality determines outcome:** The most
+important factor in whether preference training produces genuine
+reasoning or style artifacts is the quality of your chosen/rejected
+pairs. If pairs differ only in surface tokens — the model learns
+surface tokens. If pairs differ in reasoning depth — the model
+learns reasoning depth. Garbage in, gaming out.
+
+---
+
+## What This Means For Your Benchmark
+
+Your bench_overcommitment penalization is mechanically sound —
+you are training on genuine quality differences between
+overcommitment and cautious responses. The risk is not in
+your objective choice. It is in your evaluation design.
+
+Run the diagnostic above with two probe types:
+
+- **Strong evidence prompt:** 10 engineers available, client
+  has budget confirmed, timeline is realistic
+- **Weak evidence prompt:** Client asks for 10 engineers,
+  no budget discussed, timeline is aggressive
+
+If your model commits on strong evidence and hedges on weak —
+your training worked. If it hedges on both — you have a style
+artifact. The diagnostic tells you which before you ship.
 
 ---
 
@@ -262,7 +323,8 @@ https://arxiv.org/abs/2405.14734
 Defines the length-normalized reward formulation and compares
 SimPO to DPO mathematically. Section 3 explains exactly how
 removing the reference model changes the token probability
-shift — load-bearing for the mechanism section.
+shift. Load-bearing for the DPO vs SimPO vs ORPO mechanism
+section and the evaluator gaming risk comparison.
 
 **Paper 2:**
 Gao et al. (2023) — "Scaling Laws for Reward Model
@@ -270,12 +332,13 @@ Overoptimization"
 arXiv:2210.10760
 https://arxiv.org/abs/2210.10760
 Empirically demonstrates how preference-trained models overfit
-to reward signals — directly load-bearing for the evaluator
-gaming diagnostic and the reward overoptimization adjacent
-concept.
+to reward signals as training progresses — the foundational
+paper on reward overoptimization and evaluator gaming.
+Load-bearing for the diagnostic section and the adjacent
+concept on KL regularization.
 
 **Tool used:**
 Token probability shift simulation in Python (numpy, seed=42)
 — demonstrates the structural difference between genuine
 reasoning learning and style artifact/evaluator gaming.
-Output verified by running the code locally.
+All output verified by running the code locally.
