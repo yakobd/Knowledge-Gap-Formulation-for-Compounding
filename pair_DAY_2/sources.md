@@ -24,15 +24,20 @@ decision making.
 
 ## Canonical Paper 2
 
-**OpenAI (2023) — Function Calling Documentation**
-Official API documentation
-https://platform.openai.com/docs/guides/function-calling
+**Patil et al. (2023) — "Gorilla: Large Language Model Connected
+with Massive APIs"**
+arXiv:2305.15334
+https://arxiv.org/abs/2305.15334
 
-Authoritative specification of how tool schemas are injected
-into context, how the model generates tool_calls, and how
-finish_reason distinguishes tool calls from final answers.
-Load-bearing for the full token flow section and the hands-on
-demonstration showing real tool_calls output.
+Gorilla is the foundational paper on how models learn to generate
+accurate API and tool calls. It demonstrates that tool calling is
+a token generation problem — models must produce syntactically
+and semantically correct structured output matching API schemas.
+Section 3 shows why tool description quality directly determines
+call accuracy, and why models hallucinate wrong tool arguments
+when descriptions are vague — directly load-bearing for the
+"why tools get ignored" section of this explainer and the
+tool description engineering adjacent concept.
 
 ---
 

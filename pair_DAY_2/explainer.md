@@ -180,7 +180,7 @@ if message.tool_calls:
     print(f"parsed company: {args['company']}")
 ```
 
-**Expected output:**
+**Actual output:**
 
 ```
 finish_reason: tool_calls
