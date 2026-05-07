@@ -86,7 +86,12 @@ gets penalized harder than a 20-token one.
 
 **Evaluator gaming risk: HIGH** — without a reference model
 anchor, SimPO shifts token probabilities more aggressively.
-Cautious tokens in chosen responses get a stronger boost than
+The reference model in DPO acts as a constraint — it prevents
+any single token's probability from shifting too far from the
+original distribution. Without this constraint, SimPO can
+raise P("scope") and P("validate") dramatically across all
+contexts, not just when evidence is weak. Cautious tokens
+in chosen responses get a stronger unconditional boost than
 in DPO.
 
 ---
