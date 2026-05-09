@@ -69,8 +69,8 @@ The reason is underpowered detection — not proven failure.
 **Tweet 5:**
 The hidden problem: your 60/40 blending formula.
 
-condition_trained_judge uses:
-final_score = 0.6 _ judge_score + 0.4 _ machine_score
+condition*trained_judge uses:
+final_score = 0.6 * judge*score + 0.4 * machine_score
 
 Machine scores are deterministic — low variance.
 Blending compresses the score distribution.
